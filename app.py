@@ -12,8 +12,8 @@ from email.mime.multipart import MIMEMultipart
 # -----------------------------------
 # TITLE (UPDATED AS YOU REQUESTED)
 # -----------------------------------
-st.set_page_config(page_title="Quick-Email-For-Dad", page_icon="📧")
-st.title("📧 Quick-Email-Sender-For-Dad  (DAD)")
+st.set_page_config(page_title="Quick-Email-Sender-Dad", page_icon="📧")
+st.title("📧 Quick-Email-Sender (DAD)")
 
 # -----------------------------------
 # SESSION STATE FOR MULTI GMAILS
