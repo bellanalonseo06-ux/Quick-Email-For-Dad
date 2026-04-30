@@ -12,20 +12,18 @@ from email.mime.multipart import MIMEMultipart
 # -----------------------------------
 # PAGE CONFIG
 # -----------------------------------
-st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
+st.set_page_config(page_title="Gmail Sender", page_icon="📧")
 
 # -----------------------------------
-# FORCE RESET LOGIC (IMPORTANT FIX)
+# RESET SYSTEM (FIXED PROPERLY)
 # -----------------------------------
 if "reset" not in st.session_state:
     st.session_state.reset = False
 
-def trigger_reset():
+def reset_app():
     st.session_state.reset = True
 
-
 if st.session_state.reset:
-    # clear EVERYTHING
     st.session_state.clear()
     st.session_state.reset = False
     st.rerun()
@@ -39,102 +37,95 @@ with col1:
     st.title("📧 Gmail Bulk Sender")
 
 with col2:
-    st.button("🔄 Reset App", on_click=trigger_reset)
+    st.button("🔄 Reset App", on_click=reset_app)
 
 # -----------------------------------
 # LOGIN
 # -----------------------------------
 st.subheader("🔐 Login")
 
-GMAIL = st.text_input("Gmail Address", key="gmail")
-APP_PASSWORD = st.text_input("App Password", type="password", key="password")
+gmail = st.text_input("Gmail Address", key="gmail")
+password = st.text_input("App Password", type="password", key="password")
 
 # -----------------------------------
-# EMAIL CONTENT
+# EMAIL EDITOR
 # -----------------------------------
-subject = st.text_input("Email Subject", key="subject")
+subject = st.text_input("Subject", key="subject")
 
-st.write("✍️ Write Email (Gmail-style editor)")
+st.write("✍️ Write Email")
 
-html_message = st_quill(
-    placeholder="Write your email here...",
+message = st_quill(
     html=True,
     key="editor"
 )
 
 # -----------------------------------
-# CSV UPLOAD
+# FILE UPLOAD
 # -----------------------------------
-file = st.file_uploader(
-    "Upload CSV (ONLY email column)",
-    type=["csv"],
-    key="file"
-)
+file = st.file_uploader("Upload CSV (email column only)", type=["csv"], key="file")
 
 st.info("CSV format:\nemail\nabc@gmail.com")
 
 # -----------------------------------
-# SEND EMAILS
+# SEND BUTTON
 # -----------------------------------
 if st.button("🚀 Send Emails"):
 
-    if not GMAIL or not APP_PASSWORD:
-        st.error("Enter Gmail and App Password")
+    if not gmail or not password:
+        st.error("Enter Gmail credentials")
         st.stop()
 
     if file is None:
-        st.error("Upload CSV file")
+        st.error("Upload CSV")
         st.stop()
 
-    try:
-        # CSV SAFE READ
-        content = file.getvalue().decode("utf-8", errors="ignore")
-        df = pd.read_csv(io.StringIO(content))
+    # READ CSV SAFELY
+    content = file.getvalue().decode("utf-8", errors="ignore")
+    df = pd.read_csv(io.StringIO(content))
 
-        df = df.loc[:, ~df.columns.str.contains("Unnamed")]
-        df.columns = df.columns.str.strip().str.lower()
+    df = df.loc[:, ~df.columns.str.contains("Unnamed")]
+    df.columns = df.columns.str.strip().str.lower()
 
-        if len(df.columns) != 1 or df.columns[0] != "email":
-            st.error("CSV must contain ONLY one column: email")
-            st.stop()
+    if len(df.columns) != 1 or df.columns[0] != "email":
+        st.error("CSV must contain ONLY email column")
+        st.stop()
 
-        emails = df["email"].dropna().astype(str).str.strip().tolist()
+    emails = df["email"].dropna().astype(str).tolist()
 
-        st.success(f"Total Emails: {len(emails)}")
+    st.success(f"Total Emails: {len(emails)}")
 
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(GMAIL, APP_PASSWORD)
+    # SMTP
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    server.starttls()
+    server.login(gmail, password)
 
-        progress = st.progress(0)
-        sent = 0
+    progress = st.progress(0)
+    sent = 0
 
-        for i, email in enumerate(emails):
+    for i, email in enumerate(emails):
 
-            msg = MIMEMultipart()
-            msg["From"] = GMAIL
-            msg["To"] = email
-            msg["Subject"] = subject
+        msg = MIMEMultipart()
+        msg["From"] = gmail
+        msg["To"] = email
+        msg["Subject"] = subject
 
-            msg.attach(MIMEText(html_message, "html"))
+        msg.attach(MIMEText(message, "html"))
 
-            try:
-                server.sendmail(GMAIL, email, msg.as_string())
-                st.success(f"Sent → {email}")
-                sent += 1
-            except:
-                st.error(f"Failed → {email}")
+        try:
+            server.sendmail(gmail, email, msg.as_string())
+            st.success(f"Sent → {email}")
+            sent += 1
+        except:
+            st.error(f"Failed → {email}")
 
-            progress.progress((i + 1) / len(emails))
+        progress.progress((i + 1) / len(emails))
 
-            if i < len(emails) - 1:
-                time.sleep(random.randint(8, 10))
+        if i < len(emails) - 1:
+            time.sleep(random.randint(2, 3))
 
-        server.quit()
+    server.quit()
 
-        st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
+    st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
 
-        st.button("🔄 Start New Campaign", on_click=trigger_reset)
-
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+    # IMPORTANT: AUTO RESET BUTTON
+    st.button("🔄 Start New Campaign", on_click=reset_app)
