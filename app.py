@@ -18,19 +18,9 @@ st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
 # SAFE RESET FUNCTION (FIXED)
 # -----------------------------------
 def reset_app():
-    keys_to_clear = [
-        "gmail",
-        "password",
-        "subject",
-        "editor",
-        "file_uploaded"
-    ]
-
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-
-    st.rerun()
+    # Clear all session state safely
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
 
 # -----------------------------------
 # HEADER
@@ -49,12 +39,7 @@ with col2:
 st.subheader("🔐 Login")
 
 GMAIL = st.text_input("Gmail Address", key="gmail")
-
-APP_PASSWORD = st.text_input(
-    "App Password",
-    type="password",
-    key="password"
-)
+APP_PASSWORD = st.text_input("App Password", type="password", key="password")
 
 # -----------------------------------
 # EMAIL CONTENT
@@ -70,23 +55,24 @@ html_message = st_quill(
 )
 
 # -----------------------------------
-# FILE UPLOAD
+# CSV UPLOAD
 # -----------------------------------
 file = st.file_uploader(
     "Upload CSV (ONLY email column)",
     type=["csv"],
-    key="file_uploaded"
+    key="file"
 )
 
 st.info("CSV format:\nemail\nabc@gmail.com")
 
 # -----------------------------------
-# SEND BUTTON
+# SEND EMAILS
 # -----------------------------------
 if st.button("🚀 Send Emails"):
 
+    # VALIDATION
     if not GMAIL or not APP_PASSWORD:
-        st.error("Enter Gmail and App Password")
+        st.error("Please enter Gmail and App Password")
         st.stop()
 
     if file is None:
@@ -99,24 +85,31 @@ if st.button("🚀 Send Emails"):
 
     try:
         # -----------------------------------
-        # SAFE CSV READ
+        # SAFE CSV LOADING
         # -----------------------------------
         content = file.getvalue().decode("utf-8", errors="ignore")
         df = pd.read_csv(io.StringIO(content))
 
+        # Remove junk columns
         df = df.loc[:, ~df.columns.str.contains("Unnamed")]
         df.columns = df.columns.str.strip().str.lower()
 
+        # STRICT CHECK
         if len(df.columns) != 1 or df.columns[0] != "email":
-            st.error("CSV must contain ONLY column: email")
+            st.error("CSV must contain ONLY one column: email")
+            st.write("Detected columns:", list(df.columns))
             st.stop()
 
         emails = df["email"].dropna().astype(str).str.strip().tolist()
 
+        if len(emails) == 0:
+            st.error("No valid emails found")
+            st.stop()
+
         st.success(f"Total Emails: {len(emails)}")
 
         # -----------------------------------
-        # SMTP
+        # SMTP SETUP
         # -----------------------------------
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
@@ -146,14 +139,15 @@ if st.button("🚀 Send Emails"):
 
             progress.progress((i + 1) / len(emails))
 
+            # 20–30 sec delay
             if i < len(emails) - 1:
-                time.sleep(random.randint(2, 3))
+                time.sleep(random.randint(8, 10))
 
         server.quit()
 
         st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
 
-        # Optional reset button after completion
+        # Optional restart button
         st.button("🔄 Start New Campaign", on_click=reset_app)
 
     except Exception as e:
