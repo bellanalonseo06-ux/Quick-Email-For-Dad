@@ -5,69 +5,66 @@ import time
 import random
 import io
 
-from streamlit_quill import st_quill
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # -----------------------------------
 # PAGE CONFIG
 # -----------------------------------
-st.set_page_config(page_title="Gmail Sender", page_icon="📧")
+st.set_page_config(page_title="Bulletproof Email Sender", page_icon="📧")
 
-st.title("📧 Gmail Bulk Sender (Login Mode)")
+st.title("📧 Bulletproof Gmail Sender v2")
 
 # -----------------------------------
-# LOGIN INPUTS (NEW)
+# LOGIN
 # -----------------------------------
-st.subheader("🔐 Login")
+GMAIL = st.text_input("Gmail Address")
+APP_PASSWORD = st.text_input("App Password", type="password")
 
-GMAIL = st.text_input("Enter Gmail Address")
+# -----------------------------------
+# EMAIL CONTENT
+# -----------------------------------
+subject = st.text_input("Subject")
 
-APP_PASSWORD = st.text_input(
-    "Enter Gmail App Password",
-    type="password"
+message = st.text_area(
+    "Email Message (HTML supported)",
+    height=220,
+    placeholder="Write your email..."
 )
 
-# -----------------------------------
-# EMAIL EDITOR
-# -----------------------------------
-subject = st.text_input("Email Subject")
-
-st.write("✍️ Write Email (Gmail-style editor)")
-
-html_message = st_quill(
-    placeholder="Write your email here...",
-    html=True
-)
-
-# -----------------------------------
-# CSV UPLOAD
-# -----------------------------------
 file = st.file_uploader("Upload CSV (ONLY email column)", type=["csv"])
 
-st.info("CSV format:\nemail\nabc@gmail.com")
+st.info("CSV format: email column only")
 
 # -----------------------------------
-# START BUTTON
+# SAFE SMTP CONNECT FUNCTION
 # -----------------------------------
-if st.button("🚀 Send Emails"):
+def connect_smtp():
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
+        server.starttls()
+        server.login(GMAIL, APP_PASSWORD)
+        return server
+    except Exception as e:
+        st.error(f"SMTP connection failed: {e}")
+        return None
 
-    # VALIDATION
+# -----------------------------------
+# START SENDING
+# -----------------------------------
+if st.button("🚀 Start Sending"):
+
     if not GMAIL or not APP_PASSWORD:
-        st.error("Please enter Gmail and App Password")
+        st.error("Enter Gmail credentials")
         st.stop()
 
     if file is None:
         st.error("Upload CSV file")
         st.stop()
 
-    if not subject or not html_message:
-        st.error("Subject and email content required")
-        st.stop()
-
-    # -----------------------------------
-    # READ CSV SAFELY
-    # -----------------------------------
+    # -------------------------------
+    # SAFE CSV LOAD
+    # -------------------------------
     content = file.getvalue().decode("utf-8", errors="ignore")
     df = pd.read_csv(io.StringIO(content))
 
@@ -82,45 +79,68 @@ if st.button("🚀 Send Emails"):
 
     st.success(f"Total Emails: {len(emails)}")
 
-    # -----------------------------------
-    # SMTP CONNECTION
-    # -----------------------------------
-    try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(GMAIL, APP_PASSWORD)
-    except:
-        st.error("Login failed. Check Gmail or App Password.")
-        st.stop()
-
     progress = st.progress(0)
+
     sent = 0
+    failed = 0
+
+    server = connect_smtp()
 
     # -----------------------------------
-    # SEND LOOP
+    # SEND LOOP (BULLETPROOF)
     # -----------------------------------
     for i, email in enumerate(emails):
 
-        msg = MIMEMultipart()
-        msg["From"] = GMAIL
-        msg["To"] = email
-        msg["Subject"] = subject
-
-        msg.attach(MIMEText(html_message, "html"))
+        if not server:
+            st.warning("Reconnecting SMTP...")
+            server = connect_smtp()
+            if not server:
+                st.error("Failed to reconnect SMTP. Stopping.")
+                break
 
         try:
+            msg = MIMEMultipart()
+            msg["From"] = GMAIL
+            msg["To"] = email
+            msg["Subject"] = subject
+
+            msg.attach(MIMEText(message, "html"))
+
             server.sendmail(GMAIL, email, msg.as_string())
+
             st.success(f"Sent → {email}")
             sent += 1
-        except:
+
+        except Exception as e:
             st.error(f"Failed → {email}")
+            failed += 1
+
+            # try reconnect once if failure happens
+            try:
+                server.quit()
+            except:
+                pass
+
+            server = connect_smtp()
 
         progress.progress((i + 1) / len(emails))
 
-        # 4-5 sec delay
+        # safe delay
         if i < len(emails) - 1:
-            time.sleep(random.randint(4, 5))
+            time.sleep(random.randint(4, 6))
 
-    server.quit()
+    # -----------------------------------
+    # SAFE CLEANUP (NO CRASH)
+    # -----------------------------------
+    try:
+        if server:
+            server.quit()
+    except:
+        pass
 
-    st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
+    st.success(f"""
+    🎉 Completed!
+
+    ✅ Sent: {sent}  
+    ❌ Failed: {failed}  
+    """)
