@@ -10,86 +10,77 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # -----------------------------------
-# TITLE (UPDATED AS REQUESTED)
+# UI
 # -----------------------------------
 st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
+
 st.title("📧 Gmail Bulk Sender (DAD)")
 
 # -----------------------------------
-# MULTI-GMAIL INPUT
+# MULTI GMAIL INPUT (NEW FEATURE)
 # -----------------------------------
-st.subheader("🔐 Gmail Accounts (Multi-Login Support)")
+st.subheader("🔐 Gmail Accounts (Multi Login Support)")
 
-gmail_accounts_input = st.text_area(
-    "Enter Gmail accounts (one per line)",
-    placeholder="gmail1@gmail.com\ngmail2@gmail.com\ngmail3@gmail.com"
+gmail_input = st.text_area(
+    "Enter Gmail Accounts (one per line)",
+    placeholder="example1@gmail.com\nexample2@gmail.com"
 )
 
-APP_PASSWORD = st.text_input("App Password (same for all accounts)", type="password")
+password = st.text_input("App Password (same for all accounts)", type="password")
 
 # -----------------------------------
 # EMAIL EDITOR
 # -----------------------------------
-subject = st.text_input("Email Subject")
+subject = st.text_input("Subject")
 
-st.write("✍️ Gmail Style Email Editor")
-
-html_message = st_quill(
-    placeholder="Write your email here...",
-    html=True
-)
+st.write("✍️ Email Content")
+html_message = st_quill(placeholder="Write email here...", html=True)
 
 file = st.file_uploader("Upload CSV (ONLY email column)", type=["csv"])
 
-st.info("CSV format:\nemail\nabc@gmail.com\nxyz@yahoo.com")
+# -----------------------------------
+# RESUME SUPPORT
+# -----------------------------------
+if "last_index" not in st.session_state:
+    st.session_state.last_index = 0
+
+if "gmail_index" not in st.session_state:
+    st.session_state.gmail_index = 0
 
 # -----------------------------------
-# SMTP CONNECT FUNCTION
+# SMTP CONNECT
 # -----------------------------------
-def connect_smtp(account):
+def connect_smtp(gmail, password):
     server = smtplib.SMTP("smtp.gmail.com", 587)
     server.starttls()
-    server.login(account, APP_PASSWORD)
+    server.login(gmail, password)
     return server
 
 # -----------------------------------
 # START BUTTON
 # -----------------------------------
-if st.button("🚀 Start Sending Emails"):
+if st.button("🚀 Start Sending"):
 
+    # -------------------------
     # VALIDATION
-    if not gmail_accounts_input:
-        st.error("Enter at least one Gmail account")
-        st.stop()
-
-    if not APP_PASSWORD:
-        st.error("Enter App Password")
+    # -------------------------
+    if not gmail_input or not password:
+        st.error("Enter Gmail accounts and password")
         st.stop()
 
     if file is None:
         st.error("Upload CSV file")
         st.stop()
 
-    if not subject or not html_message:
-        st.error("Subject and email content required")
+    gmail_list = [g.strip() for g in gmail_input.split("\n") if g.strip()]
+
+    if len(gmail_list) == 0:
+        st.error("Add at least one Gmail account")
         st.stop()
 
-    # -----------------------------------
-    # PROCESS GMAIL ACCOUNTS
-    # -----------------------------------
-    accounts = [
-        g.strip() for g in gmail_accounts_input.split("\n") if g.strip()
-    ]
-
-    if len(accounts) == 0:
-        st.error("No valid Gmail accounts found")
-        st.stop()
-
-    account_index = 0
-
-    # -----------------------------------
-    # SAFE CSV READ
-    # -----------------------------------
+    # -------------------------
+    # READ CSV SAFE
+    # -------------------------
     content = file.getvalue().decode("utf-8", errors="ignore")
     df = pd.read_csv(io.StringIO(content))
 
@@ -97,66 +88,77 @@ if st.button("🚀 Start Sending Emails"):
     df.columns = df.columns.str.strip().str.lower()
 
     if len(df.columns) != 1 or df.columns[0] != "email":
-        st.error("CSV must contain ONLY one column: email")
+        st.error("CSV must contain ONLY email column")
         st.stop()
 
     emails = df["email"].dropna().astype(str).str.strip().tolist()
 
-    st.success(f"Total Emails: {len(emails)}")
+    total = len(emails)
 
-    # -----------------------------------
-    # PROGRESS
-    # -----------------------------------
+    st.success(f"Total Emails: {total}")
+    st.info(f"Using {len(gmail_list)} Gmail accounts (rotation enabled)")
+
     progress = st.progress(0)
-    status = st.empty()
 
     server = None
     sent = 0
 
-    # -----------------------------------
-    # MAIN LOOP
-    # -----------------------------------
-    for i, email in enumerate(emails):
+    i = st.session_state.last_index
 
-        current_account = accounts[account_index % len(accounts)]
+    # -----------------------------------
+    # SEND LOOP
+    # -----------------------------------
+    while i < total:
+
+        email = emails[i]
+
+        # rotate Gmail accounts
+        gmail = gmail_list[st.session_state.gmail_index]
 
         try:
-            # reconnect if needed
             if server is None:
-                server = connect_smtp(current_account)
+                server = connect_smtp(gmail, password)
 
             msg = MIMEMultipart()
-            msg["From"] = current_account
+            msg["From"] = gmail
             msg["To"] = email
             msg["Subject"] = subject
 
             msg.attach(MIMEText(html_message, "html"))
 
-            server.sendmail(current_account, email, msg.as_string())
+            server.sendmail(gmail, email, msg.as_string())
 
-            st.success(f"Sent → {email} via {current_account}")
+            st.success(f"Sent → {email} (via {gmail})")
             sent += 1
 
-        except Exception as e:
-            st.warning(f"Reconnecting account → {current_account}")
+        except Exception:
+            st.warning("Reconnecting SMTP...")
+
             try:
-                server = connect_smtp(current_account)
+                server = connect_smtp(gmail, password)
                 continue
             except:
-                st.error(f"Account failed: {current_account}")
-                continue
+                st.error("SMTP reconnect failed")
+                break
 
-        # update rotation
-        account_index += 1
+        # update resume
+        st.session_state.last_index = i + 1
 
-        progress.progress((i + 1) / len(emails))
+        # rotate gmail account
+        st.session_state.gmail_index = (
+            st.session_state.gmail_index + 1
+        ) % len(gmail_list)
 
-        # 4–6 sec delay (your requirement)
-        if i < len(emails) - 1:
+        progress.progress((i + 1) / total)
+
+        # 4–6 sec delay
+        if i < total - 1:
             time.sleep(random.randint(4, 6))
 
+        i += 1
+
     # -----------------------------------
-    # SAFE CLOSE
+    # CLOSE SMTP SAFELY
     # -----------------------------------
     try:
         if server:
@@ -164,4 +166,8 @@ if st.button("🚀 Start Sending Emails"):
     except:
         pass
 
-    st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
+    st.success(f"🎉 Done! Sent {sent}/{total} emails")
+
+    # reset resume
+    st.session_state.last_index = 0
+    st.session_state.gmail_index = 0
