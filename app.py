@@ -15,12 +15,20 @@ from email.mime.multipart import MIMEMultipart
 st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
 
 # -----------------------------------
-# SAFE RESET FUNCTION (FIXED)
+# FORCE RESET LOGIC (IMPORTANT FIX)
 # -----------------------------------
-def reset_app():
-    # Clear all session state safely
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+if "reset" not in st.session_state:
+    st.session_state.reset = False
+
+def trigger_reset():
+    st.session_state.reset = True
+
+
+if st.session_state.reset:
+    # clear EVERYTHING
+    st.session_state.clear()
+    st.session_state.reset = False
+    st.rerun()
 
 # -----------------------------------
 # HEADER
@@ -31,7 +39,7 @@ with col1:
     st.title("📧 Gmail Bulk Sender")
 
 with col2:
-    st.button("🔄 Reset App", on_click=reset_app)
+    st.button("🔄 Reset App", on_click=trigger_reset)
 
 # -----------------------------------
 # LOGIN
@@ -70,47 +78,30 @@ st.info("CSV format:\nemail\nabc@gmail.com")
 # -----------------------------------
 if st.button("🚀 Send Emails"):
 
-    # VALIDATION
     if not GMAIL or not APP_PASSWORD:
-        st.error("Please enter Gmail and App Password")
+        st.error("Enter Gmail and App Password")
         st.stop()
 
     if file is None:
         st.error("Upload CSV file")
         st.stop()
 
-    if not subject or not html_message:
-        st.error("Subject and message required")
-        st.stop()
-
     try:
-        # -----------------------------------
-        # SAFE CSV LOADING
-        # -----------------------------------
+        # CSV SAFE READ
         content = file.getvalue().decode("utf-8", errors="ignore")
         df = pd.read_csv(io.StringIO(content))
 
-        # Remove junk columns
         df = df.loc[:, ~df.columns.str.contains("Unnamed")]
         df.columns = df.columns.str.strip().str.lower()
 
-        # STRICT CHECK
         if len(df.columns) != 1 or df.columns[0] != "email":
             st.error("CSV must contain ONLY one column: email")
-            st.write("Detected columns:", list(df.columns))
             st.stop()
 
         emails = df["email"].dropna().astype(str).str.strip().tolist()
 
-        if len(emails) == 0:
-            st.error("No valid emails found")
-            st.stop()
-
         st.success(f"Total Emails: {len(emails)}")
 
-        # -----------------------------------
-        # SMTP SETUP
-        # -----------------------------------
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(GMAIL, APP_PASSWORD)
@@ -118,9 +109,6 @@ if st.button("🚀 Send Emails"):
         progress = st.progress(0)
         sent = 0
 
-        # -----------------------------------
-        # SEND LOOP
-        # -----------------------------------
         for i, email in enumerate(emails):
 
             msg = MIMEMultipart()
@@ -139,7 +127,6 @@ if st.button("🚀 Send Emails"):
 
             progress.progress((i + 1) / len(emails))
 
-            # 20–30 sec delay
             if i < len(emails) - 1:
                 time.sleep(random.randint(8, 10))
 
@@ -147,8 +134,7 @@ if st.button("🚀 Send Emails"):
 
         st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
 
-        # Optional restart button
-        st.button("🔄 Start New Campaign", on_click=reset_app)
+        st.button("🔄 Start New Campaign", on_click=trigger_reset)
 
     except Exception as e:
         st.error(f"Error: {str(e)}")
