@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 # UI
 # -----------------------------------
 st.set_page_config(page_title="Bulletproof Gmail Sender", page_icon="📧")
-st.title("📧 Bulletproof Gmail Sender v2")
+st.title("📧 Gmail Bulk Sender (DAD)")
 
 # -----------------------------------
 # LOGIN
