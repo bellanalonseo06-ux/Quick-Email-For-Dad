@@ -10,77 +10,73 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # -----------------------------------
-# UI
+# TITLE (UPDATED AS REQUESTED)
 # -----------------------------------
 st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
-
 st.title("📧 Gmail Bulk Sender (DAD)")
 
 # -----------------------------------
-# MULTI GMAIL INPUT (NEW FEATURE)
+# MULTI GMAIL ACCOUNTS (USER SELECT)
 # -----------------------------------
-st.subheader("🔐 Gmail Accounts (Multi Login Support)")
+st.subheader("🔐 Select Gmail Account")
 
-gmail_input = st.text_area(
-    "Enter Gmail Accounts (one per line)",
-    placeholder="example1@gmail.com\nexample2@gmail.com"
-)
+accounts = {
+    "Account 1": "",
+    "Account 2": "",
+    "Account 3": ""
+}
 
-password = st.text_input("App Password (same for all accounts)", type="password")
+selected_account = st.selectbox("Choose Gmail Account", list(accounts.keys()))
+
+# User inputs credentials for selected account
+GMAIL = st.text_input(f"Gmail for {selected_account}")
+APP_PASSWORD = st.text_input(f"App Password for {selected_account}", type="password")
 
 # -----------------------------------
-# EMAIL EDITOR
+# EMAIL INPUTS
 # -----------------------------------
 subject = st.text_input("Subject")
 
-st.write("✍️ Email Content")
+st.write("✍️ Email Content (Gmail-style editor)")
 html_message = st_quill(placeholder="Write email here...", html=True)
 
 file = st.file_uploader("Upload CSV (ONLY email column)", type=["csv"])
 
 # -----------------------------------
-# RESUME SUPPORT
+# RESUME STATE
 # -----------------------------------
 if "last_index" not in st.session_state:
     st.session_state.last_index = 0
 
-if "gmail_index" not in st.session_state:
-    st.session_state.gmail_index = 0
-
 # -----------------------------------
 # SMTP CONNECT
 # -----------------------------------
-def connect_smtp(gmail, password):
+def connect_smtp():
     server = smtplib.SMTP("smtp.gmail.com", 587)
     server.starttls()
-    server.login(gmail, password)
+    server.login(GMAIL, APP_PASSWORD)
     return server
 
 # -----------------------------------
-# START BUTTON
+# START SENDING
 # -----------------------------------
 if st.button("🚀 Start Sending"):
 
-    # -------------------------
-    # VALIDATION
-    # -------------------------
-    if not gmail_input or not password:
-        st.error("Enter Gmail accounts and password")
+    if not GMAIL or not APP_PASSWORD:
+        st.error("Please enter Gmail and App Password")
         st.stop()
 
     if file is None:
         st.error("Upload CSV file")
         st.stop()
 
-    gmail_list = [g.strip() for g in gmail_input.split("\n") if g.strip()]
-
-    if len(gmail_list) == 0:
-        st.error("Add at least one Gmail account")
+    if not subject or not html_message:
+        st.error("Fill subject and email content")
         st.stop()
 
-    # -------------------------
-    # READ CSV SAFE
-    # -------------------------
+    # -----------------------------------
+    # SAFE CSV LOAD
+    # -----------------------------------
     content = file.getvalue().decode("utf-8", errors="ignore")
     df = pd.read_csv(io.StringIO(content))
 
@@ -88,15 +84,12 @@ if st.button("🚀 Start Sending"):
     df.columns = df.columns.str.strip().str.lower()
 
     if len(df.columns) != 1 or df.columns[0] != "email":
-        st.error("CSV must contain ONLY email column")
+        st.error("CSV must contain ONLY one column: email")
         st.stop()
 
     emails = df["email"].dropna().astype(str).str.strip().tolist()
 
-    total = len(emails)
-
-    st.success(f"Total Emails: {total}")
-    st.info(f"Using {len(gmail_list)} Gmail accounts (rotation enabled)")
+    st.success(f"Total Emails: {len(emails)}")
 
     progress = st.progress(0)
 
@@ -106,36 +99,32 @@ if st.button("🚀 Start Sending"):
     i = st.session_state.last_index
 
     # -----------------------------------
-    # SEND LOOP
+    # SEND LOOP (RESUME + MULTI ACCOUNT SAFE)
     # -----------------------------------
-    while i < total:
+    while i < len(emails):
 
         email = emails[i]
 
-        # rotate Gmail accounts
-        gmail = gmail_list[st.session_state.gmail_index]
-
         try:
             if server is None:
-                server = connect_smtp(gmail, password)
+                server = connect_smtp()
 
             msg = MIMEMultipart()
-            msg["From"] = gmail
+            msg["From"] = GMAIL
             msg["To"] = email
             msg["Subject"] = subject
 
             msg.attach(MIMEText(html_message, "html"))
 
-            server.sendmail(gmail, email, msg.as_string())
+            server.sendmail(GMAIL, email, msg.as_string())
 
-            st.success(f"Sent → {email} (via {gmail})")
+            st.success(f"Sent → {email}")
             sent += 1
 
         except Exception:
-            st.warning("Reconnecting SMTP...")
-
+            st.warning(f"Reconnecting SMTP for → {email}")
             try:
-                server = connect_smtp(gmail, password)
+                server = connect_smtp()
                 continue
             except:
                 st.error("SMTP reconnect failed")
@@ -144,21 +133,16 @@ if st.button("🚀 Start Sending"):
         # update resume
         st.session_state.last_index = i + 1
 
-        # rotate gmail account
-        st.session_state.gmail_index = (
-            st.session_state.gmail_index + 1
-        ) % len(gmail_list)
+        progress.progress((i + 1) / len(emails))
 
-        progress.progress((i + 1) / total)
-
-        # 4–6 sec delay
-        if i < total - 1:
+        # 4–6 sec delay (as requested earlier)
+        if i < len(emails) - 1:
             time.sleep(random.randint(4, 6))
 
         i += 1
 
     # -----------------------------------
-    # CLOSE SMTP SAFELY
+    # SAFE CLOSE
     # -----------------------------------
     try:
         if server:
@@ -166,8 +150,7 @@ if st.button("🚀 Start Sending"):
     except:
         pass
 
-    st.success(f"🎉 Done! Sent {sent}/{total} emails")
+    st.success(f"🎉 Done! Sent {sent} emails")
 
     # reset resume
     st.session_state.last_index = 0
-    st.session_state.gmail_index = 0
