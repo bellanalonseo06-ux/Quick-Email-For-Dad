@@ -12,49 +12,27 @@ from email.mime.multipart import MIMEMultipart
 # -----------------------------------
 # PAGE CONFIG
 # -----------------------------------
-st.set_page_config(page_title="Gmail Sender", page_icon="📧")
+st.set_page_config(page_title="Gmail Bulk Sender", page_icon="📧")
+
+st.title("📧 Gmail Bulk Sender")
 
 # -----------------------------------
-# RESET SYSTEM (FIXED PROPERLY)
-# -----------------------------------
-if "reset" not in st.session_state:
-    st.session_state.reset = False
-
-def reset_app():
-    st.session_state.reset = True
-
-if st.session_state.reset:
-    st.session_state.clear()
-    st.session_state.reset = False
-    st.rerun()
-
-# -----------------------------------
-# HEADER
-# -----------------------------------
-col1, col2 = st.columns([4, 1])
-
-with col1:
-    st.title("📧 Gmail Bulk Sender")
-
-with col2:
-    st.button("🔄 Reset App", on_click=reset_app)
-
-# -----------------------------------
-# LOGIN
+# LOGIN INPUTS
 # -----------------------------------
 st.subheader("🔐 Login")
 
-gmail = st.text_input("Gmail Address", key="gmail")
-password = st.text_input("App Password", type="password", key="password")
+GMAIL = st.text_input("Gmail Address", key="gmail")
+APP_PASSWORD = st.text_input("App Password", type="password", key="password")
 
 # -----------------------------------
-# EMAIL EDITOR
+# EMAIL INPUTS
 # -----------------------------------
-subject = st.text_input("Subject", key="subject")
+subject = st.text_input("Email Subject", key="subject")
 
-st.write("✍️ Write Email")
+st.write("✍️ Write Email (Gmail-style editor)")
 
-message = st_quill(
+html_message = st_quill(
+    placeholder="Write your email here...",
     html=True,
     key="editor"
 )
@@ -62,70 +40,99 @@ message = st_quill(
 # -----------------------------------
 # FILE UPLOAD
 # -----------------------------------
-file = st.file_uploader("Upload CSV (email column only)", type=["csv"], key="file")
+file = st.file_uploader(
+    "Upload CSV (ONLY email column)",
+    type=["csv"],
+    key="file"
+)
 
 st.info("CSV format:\nemail\nabc@gmail.com")
 
 # -----------------------------------
-# SEND BUTTON
+# SEND EMAILS
 # -----------------------------------
 if st.button("🚀 Send Emails"):
 
-    if not gmail or not password:
-        st.error("Enter Gmail credentials")
+    # VALIDATION
+    if not GMAIL or not APP_PASSWORD:
+        st.error("Please enter Gmail and App Password")
         st.stop()
 
     if file is None:
-        st.error("Upload CSV")
+        st.error("Upload CSV file")
         st.stop()
 
-    # READ CSV SAFELY
-    content = file.getvalue().decode("utf-8", errors="ignore")
-    df = pd.read_csv(io.StringIO(content))
-
-    df = df.loc[:, ~df.columns.str.contains("Unnamed")]
-    df.columns = df.columns.str.strip().str.lower()
-
-    if len(df.columns) != 1 or df.columns[0] != "email":
-        st.error("CSV must contain ONLY email column")
+    if not subject or not html_message:
+        st.error("Subject and email content required")
         st.stop()
 
-    emails = df["email"].dropna().astype(str).tolist()
+    try:
+        # -----------------------------------
+        # SAFE CSV READING
+        # -----------------------------------
+        content = file.getvalue().decode("utf-8", errors="ignore")
+        df = pd.read_csv(io.StringIO(content))
 
-    st.success(f"Total Emails: {len(emails)}")
+        df = df.loc[:, ~df.columns.str.contains("Unnamed")]
+        df.columns = df.columns.str.strip().str.lower()
 
-    # SMTP
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(gmail, password)
+        if len(df.columns) != 1 or df.columns[0] != "email":
+            st.error("CSV must contain ONLY one column: email")
+            st.write("Detected columns:", list(df.columns))
+            st.stop()
 
-    progress = st.progress(0)
-    sent = 0
+        emails = df["email"].dropna().astype(str).str.strip().tolist()
 
-    for i, email in enumerate(emails):
+        if len(emails) == 0:
+            st.error("No valid emails found")
+            st.stop()
 
-        msg = MIMEMultipart()
-        msg["From"] = gmail
-        msg["To"] = email
-        msg["Subject"] = subject
+        st.success(f"Total Emails: {len(emails)}")
 
-        msg.attach(MIMEText(message, "html"))
-
+        # -----------------------------------
+        # SMTP CONNECTION
+        # -----------------------------------
         try:
-            server.sendmail(gmail, email, msg.as_string())
-            st.success(f"Sent → {email}")
-            sent += 1
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(GMAIL, APP_PASSWORD)
         except:
-            st.error(f"Failed → {email}")
+            st.error("Login failed. Check Gmail or App Password.")
+            st.stop()
 
-        progress.progress((i + 1) / len(emails))
+        progress = st.progress(0)
+        sent = 0
 
-        if i < len(emails) - 1:
-            time.sleep(random.randint(2, 3))
+        # -----------------------------------
+        # SEND LOOP
+        # -----------------------------------
+        for i, email in enumerate(emails):
 
-    server.quit()
+            msg = MIMEMultipart()
+            msg["From"] = GMAIL
+            msg["To"] = email
+            msg["Subject"] = subject
 
-    st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
+            msg.attach(MIMEText(html_message, "html"))
 
-    # IMPORTANT: AUTO RESET BUTTON
-    st.button("🔄 Start New Campaign", on_click=reset_app)
+            try:
+                server.sendmail(GMAIL, email, msg.as_string())
+                st.success(f"Sent → {email}")
+                sent += 1
+            except:
+                st.error(f"Failed → {email}")
+
+            progress.progress((i + 1) / len(emails))
+
+            # 20–30 sec delay
+            if i < len(emails) - 1:
+                wait = random.randint(5, 7)
+                st.warning(f"⏳ Waiting {wait} seconds...")
+                time.sleep(wait)
+
+        server.quit()
+
+        st.success(f"🎉 Done! Sent {sent}/{len(emails)} emails")
+
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
