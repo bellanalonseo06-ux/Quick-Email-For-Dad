@@ -12,9 +12,12 @@ from email.mime.multipart import MIMEMultipart
 # -----------------------------------
 # RESET FUNCTION
 # -----------------------------------
+# def reset_app():
+#     for key in list(st.session_state.keys()):
+#         del st.session_state[key]
+#     st.rerun()
 def reset_app():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+    st.session_state.clear()
     st.rerun()
 
 # -----------------------------------
